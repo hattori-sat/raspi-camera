@@ -1,7 +1,7 @@
 import os
-from picamera import PiCamera
+# from picamera import PiCamera
 from time import sleep
-
+PiCamera=1
 # フォルダ名
 folder_name = "test_images"
 
