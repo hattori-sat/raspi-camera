@@ -1,4 +1,19 @@
 # raspi-camera
+
+## ※追記事項
+raspberrypi4は過去のものと比べて変化点が多く見受けられた．
+
+- configの位置が **/boot/firmware/config.txt** に変更された
+- ```sudo vim /boot/firmware/config.txt``` で編集可能（vim -> nanoでも可）
+- ラズパイ4で純正カメラの設定がない可能性がある : [設定](https://www.raspberrypi.com/documentation/computers/camera_software.html#configuration)
+- [no camera availableの罠](https://forums.raspberrypi.com/viewtopic.php?t=358884)
+- [カメラの確認方法が変わった（変化追い切れていない）](https://qiita.com/yutaka_m/items/019d05a19b206cbcf571)
+
+### この辺りで遊ぶとよい
+- とりあえず,capture_60hz.py実行してみてダメだったら教えてほしい
+- [参考1](https://sozorablog.com/camera-module-v3/)
+- [LED 参考](https://tech-and-investment.com/raspberrypi2-2-pwm/)
+
 ## ラズパイの操作
 色んな操作方法がある．  
 おそらく最も簡単なのは，USBキーボードとマウス，そしてHDMIでディスプレイを繋げてPCのように操作する方法である．
@@ -56,4 +71,39 @@ git clone https://github.com/hattori-sat/raspi-camera.git
 sudo apt update
 sudo apt upgrade -y
 sudo apt install -y libopencv-dev python3-opencv
+```
+
+## memo
+コマンド例
+
+```bash
+hattori@raspi-hattori:~ $ ls
+Bookshelf  Desktop  Documents  Downloads  Music  Pictures  Public  Templates  Videos
+hattori@raspi-hattori:~ $ cd Documents
+hattori@raspi-hattori:~/Documents $ ls
+process_image_light
+hattori@raspi-hattori:~/Documents $ ls process_image_light/
+sample2.py  sample.py
+hattori@raspi-hattori:~/Documents $ git clone https://github.com/hattori-sat/raspi-camera.git
+Cloning into 'raspi-camera'...
+remote: Enumerating objects: 19, done.
+remote: Counting objects: 100% (19/19), done.
+remote: Compressing objects: 100% (14/14), done.
+import os
+remote: Total 19 (delta 3), reused 14 (delta 1), pack-reused 0
+Receiving objects: 100% (19/19), 5.28 KiB | 540.00 KiB/s, done.
+Resolving deltas: 100% (3/3), done.
+hattori@raspi-hattori:~/Documents $ ls
+process_image_light  raspi-camera
+hattori@raspi-hattori:~/Documents $ cd raspi-camera/
+hattori@raspi-hattori:~/Documents/raspi-camera $ ls
+function_test  README.md
+hattori@raspi-hattori:~/Documents/raspi-camera $ vim
+hattori@raspi-hattori:~/Documents/raspi-camera $ ls
+function_test  README.md
+hattori@raspi-hattori:~/Documents/raspi-camera $ cd function_test/
+hattori@raspi-hattori:~/Documents/raspi-camera/function_test $ ls
+camera_capture.py
+hattori@raspi-hattori:~/Documents/raspi-camera/function_test $ vim camera_capture.py
+hattori@raspi-hattori:~/Documents/raspi-camera/function_test $ python camera_capture.py
 ```
