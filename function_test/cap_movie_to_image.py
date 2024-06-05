@@ -19,9 +19,8 @@ def record_video(filename, duration, fps=60):
     picam2.start_preview(Preview.QTGL)
 
     picam2.set_controls({"FrameDurationLimits": (int(1e6 / fps), int(1e6 / fps))})
-    high_encoder = H264Encoder(bitrate=10000000)
-    picam2.start_recording(high_encoder, 'high.h264')
-    # picam2.start_recording(filename, codec="h264")
+    encoder = H264Encoder(bitrate=10000000)
+    picam2.start_recording(encoder, filename)
     time.sleep(duration)
     picam2.stop_recording()
     picam2.stop_preview()
@@ -36,10 +35,18 @@ def extract_frames(video_file, output_dir, fps=60):
     output_dir (str): The directory to save the extracted frames.
     fps (int): Frames per second for extracting frames.
     """
-    # os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
     vidcap = cv2.VideoCapture(video_file)
+    if not vidcap.isOpened():
+        print(f"Error opening video file: {video_file}")
+        return
+
     frame_rate = vidcap.get(cv2.CAP_PROP_FPS)
+    if frame_rate == 0:
+        print("Error: Frame rate of video is zero.")
+        return
+
     frame_interval = int(frame_rate / fps)
     success, image = vidcap.read()
     count = 0
@@ -59,7 +66,7 @@ if __name__ == "__main__":
     # 保存する画像のディレクトリ
     output_dir = "./movie2images/"
     # 動画ファイルのパス
-    video_file =  "./movie2image/video.h264"
+    video_file = os.path.join(output_dir, "video.h264")
 
     # フォルダの作成
     if not os.path.exists(output_dir):
