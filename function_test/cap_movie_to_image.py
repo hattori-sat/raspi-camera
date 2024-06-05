@@ -1,4 +1,5 @@
 from picamera2 import Picamera2, Preview
+from picamera2.encoders import H264Encoder, Quality
 import cv2
 import os
 import time
@@ -18,8 +19,9 @@ def record_video(filename, duration, fps=60):
     picam2.start_preview(Preview.QTGL)
 
     picam2.set_controls({"FrameDurationLimits": (int(1e6 / fps), int(1e6 / fps))})
-    
-    picam2.start_recording(filename, codec="h264")
+    high_encoder = H264Encoder(bitrate=10000000)
+    picam2.start_recording(high_encoder, 'high.h264')
+    # picam2.start_recording(filename, codec="h264")
     time.sleep(duration)
     picam2.stop_recording()
     picam2.stop_preview()
