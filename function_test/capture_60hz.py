@@ -21,8 +21,11 @@ def capture_images(fps=60, num_images=60):
     picam2.start()
     
     # 保存先ディレクトリ
-    save_dir = '/home/pi/images_60hz/'
-    os.makedirs(save_dir, exist_ok=True)
+    save_dir = './images_60hz/'
+    # os.makedirs(save_dir, exist_ok=True)
+    # フォルダの作成
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
     
     # 画像キャプチャ用のバッファ設定
     buffer = np.empty((480, 640, 3), dtype=np.uint8)
