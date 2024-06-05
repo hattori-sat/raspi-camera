@@ -43,7 +43,7 @@ def extract_frames(video_file, output_dir, fps=60):
         return
 
     frame_rate = vidcap.get(cv2.CAP_PROP_FPS)
-    if frame_rate == 0:
+    if int(frame_rate) == 0:
         print("Error: Frame rate of video is zero.")
         return
 
