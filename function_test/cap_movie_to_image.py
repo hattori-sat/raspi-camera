@@ -1,6 +1,7 @@
 from picamera2 import Picamera2, Preview
 import cv2
 import os
+import time
 
 def record_video(filename, duration, fps=60):
     """
@@ -12,12 +13,14 @@ def record_video(filename, duration, fps=60):
     fps (int): Frames per second for the video.
     """
     picam2 = Picamera2()
-    video_config = picam2.create_video_configuration({"size": (640, 480)}, framerate=fps)
+    video_config = picam2.create_video_configuration({"size": (640, 480)})
     picam2.configure(video_config)
     picam2.start_preview(Preview.QTGL)
 
+    picam2.set_controls({"FrameDurationLimits": (int(1e6 / fps), int(1e6 / fps))})
+    
     picam2.start_recording(filename, codec="h264")
-    picam2.wait(duration)
+    time.sleep(duration)
     picam2.stop_recording()
     picam2.stop_preview()
     picam2.close()
@@ -51,13 +54,11 @@ def extract_frames(video_file, output_dir, fps=60):
     vidcap.release()
 
 if __name__ == "__main__":
-    # folder path
-    # folder_name = "movie2images"
-    # file_path = os.path.join(folder_name, "image.jpg")
     # 保存する画像のディレクトリ
     output_dir = "movie2images"
     # 動画ファイルのパス
-    video_file = os.path.join(output_dir,"video.h264") #"/home/pi/video.h264"
+    video_file =  "./movie2image/video.h264"
+
     # フォルダの作成
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
