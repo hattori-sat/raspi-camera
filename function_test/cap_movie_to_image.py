@@ -36,7 +36,7 @@ def extract_frames(video_file, output_dir, fps=60):
     output_dir (str): The directory to save the extracted frames.
     fps (int): Frames per second for extracting frames.
     """
-    os.makedirs(output_dir, exist_ok=True)
+    # os.makedirs(output_dir, exist_ok=True)
 
     vidcap = cv2.VideoCapture(video_file)
     frame_rate = vidcap.get(cv2.CAP_PROP_FPS)
@@ -57,7 +57,7 @@ def extract_frames(video_file, output_dir, fps=60):
 
 if __name__ == "__main__":
     # 保存する画像のディレクトリ
-    output_dir = "movie2images"
+    output_dir = "./movie2images/"
     # 動画ファイルのパス
     video_file =  "./movie2image/video.h264"
 
