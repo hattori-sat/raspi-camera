@@ -1,84 +1,34 @@
-// Copyright 2023 Ar-Ray-code.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 #include <iostream>
+#include <raspicam/raspicam.h>
 
-#include <libcamera/camera.h>
-#include <libcamera/camera_manager.h>
-#include <libcamera/control_ids.h>
-#include <libcamera/property_ids.h>
-#include <libcamera/transform.h>
+int main(int argc, char **argv) {
+    raspicam::RaspiCam Camera;
 
-using CameraManager = libcamera::CameraManager;
-using Camera = libcamera::Camera;
-
-std::unique_ptr<CameraManager> camera_manager_;
-
-bool camera_is_connected()
-{
-	using namespace libcamera;
-
-    std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
-    int ret = cm->start();
-    if (ret)
-    {
-        std::cout << "camera manager failed to start, code " << ret << std::endl;
-        return 1;
+    // カメラを初期化する
+    if (!Camera.open()) {
+        std::cerr << "Error opening camera" << std::endl;
+        return -1;
     }
 
-    std::vector<std::shared_ptr<Camera>> cameras = cm->cameras();
-    // Do not show USB webcams as these are not supported in libcamera-apps!
-    auto rem = std::remove_if(cameras.begin(), cameras.end(),
-                                [](auto &cam) { return cam->id().find("/usb") != std::string::npos; });
-    cameras.erase(rem, cameras.end());
+    // カメラを起動する
+    Camera.grab();
 
-    if (cameras.size() != 0)
-    {
-        unsigned int idx = 0;
-        // print number of cameras
-        std::cout << "Number of cameras: " << cameras.size() << std::endl;
-        for (auto const &cam : cameras)
-        {
-            cam->acquire();
-            std::cout << idx++ << " : " << *cam->properties().get(libcamera::properties::Model);
-            auto area = cam->properties().get(properties::PixelArrayActiveAreas);
-            if (area)
-                std::cout << " [" << (*area)[0].size().toString() << "]";
-            std::cout << " (" << cam->id() << ")" << std::endl;
+    // 画像データを保存するためのバッファ
+    unsigned char *data = new unsigned char[Camera.getImageTypeSize(raspicam::RASPICAM_FORMAT_RGB)];
 
-            std::unique_ptr<CameraConfiguration> config = cam->generateConfiguration({libcamera::StreamRole::Raw});
-            if (!config)
-            {
-                std::cout << "failed to generate capture configuration" << std::endl;
-                return 1;
-            }
+    // 画像を取得する
+    Camera.retrieve(data, raspicam::RASPICAM_FORMAT_RGB);
 
-            cam->release();
-        }
-    }
-    else
-    {
-        std::cout << "No cameras available!" << std::endl;
-        return 1;
-    }
+    // 画像をファイルに保存する (例: image.jpg)
+    std::ofstream outFile("image.jpg", std::ios::binary);
+    outFile.write(reinterpret_cast<char*>(data), Camera.getImageTypeSize(raspicam::RASPICAM_FORMAT_RGB));
+    outFile.close();
 
-    cameras.clear();
-    cm->stop();
+    // メモリを解放する
+    delete[] data;
+
+    // カメラを閉じる
+    Camera.release();
+
     return 0;
-}
-
-int main(void)
-{
-    return camera_is_connected();
 }
