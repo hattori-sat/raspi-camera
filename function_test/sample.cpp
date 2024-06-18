@@ -1,10 +1,11 @@
 #include <iostream>
+#include <memory>
+#include <mutex>
+#include <condition_variable>
 #include <libcamera/libcamera.h>
 #include <libcamera/camera_manager.h>
 #include <libcamera/camera.h>
 #include <libcamera/framebuffer_allocator.h>
-#include <libcamera/request.h>
-#include <libcamera/signal.h>
 #include <opencv2/opencv.hpp>
 
 using namespace libcamera;
@@ -56,6 +57,8 @@ public:
             requests_.push_back(move(request));
         }
 
+        camera_->requestCompleted.connect(this, &CameraCapture::requestComplete);
+
         return true;
     }
 
@@ -63,6 +66,7 @@ public:
         camera_->start();
 
         Request *request = requests_.front().get();
+        request_done_ = false;
         camera_->queueRequest(request);
 
         unique_lock<mutex> lock(mutex_);
@@ -77,9 +81,10 @@ public:
 
         const FrameBuffer *buffer = it->second;
         const FrameBuffer::Plane &plane = buffer->planes()[0];
-        void *data = mmap(nullptr, plane.length, PROT_READ, MAP_SHARED, plane.fd.get(), 0);
 
-        if (data == MAP_FAILED) {
+        void *data = plane.mmap();
+
+        if (data == nullptr) {
             cerr << "バッファのメモリマップに失敗しました" << endl;
             return false;
         }
@@ -88,7 +93,7 @@ public:
         cv::imwrite("captured_image.jpg", img);
         cout << "画像を保存しました: captured_image.jpg" << endl;
 
-        munmap(data, plane.length);
+        munmap(data, plane.length());
         camera_->stop();
         camera_->release();
 
@@ -121,12 +126,12 @@ int main() {
 
     if (!camera_capture.initialize()) {
         cerr << "カメラの初期化に失敗しました" << endl;
-        return -1;
+        return 1;
     }
 
     if (!camera_capture.capture()) {
         cerr << "画像のキャプチャに失敗しました" << endl;
-        return -1;
+        return 1;
     }
 
     return 0;
