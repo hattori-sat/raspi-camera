@@ -1,114 +1,89 @@
 #include <iostream>
-#include <memory>
-#include <vector>
-#include <opencv2/opencv.hpp>
 #include <libcamera/libcamera.h>
-#include <libcamera/base/signal.h>
-#include <libcamera/base/shared_fd.h>
+#include <libcamera/base/log.h>
+#include <libcamera/controls.h>
 #include <libcamera/framebuffer_allocator.h>
-#include <libcamera/control_ids.h>
+#include <opencv2/opencv.hpp>
 
-using namespace std;
-using namespace cv;
 using namespace libcamera;
+using namespace std;
 
-int main() {
-    // カメラマネージャを初期化
+int main()
+{
+    // カメラマネージャーの作成
     CameraManager manager;
     manager.start();
 
-    // 利用可能なカメラを取得
-    shared_ptr<Camera> camera = manager.get("camera0");
-    if (!camera) {
+    if (manager.cameras().empty()) {
         cerr << "カメラが見つかりません" << endl;
         return -1;
     }
 
-    // カメラを開く
+    shared_ptr<Camera> camera = manager.cameras()[0];
     camera->acquire();
 
-    // ストリームロールを設定
-    const StreamRoles roles = { StreamRole::StillCapture };
-    unique_ptr<CameraConfiguration> config = camera->generateConfiguration(roles);
-    if (config->size() == 0) {
-        cerr << "カメラ設定の生成に失敗しました" << endl;
-        camera->release();
+    // カメラの設定
+    unique_ptr<CameraConfiguration> config = camera->generateConfiguration({ StreamRole::StillCapture });
+
+    if (config->validate() == CameraConfiguration::Invalid) {
+        cerr << "カメラの設定が無効です" << endl;
         return -1;
     }
 
-    // カメラ設定を適用
-    config->at(0).pixelFormat = formats::BGR888;
-    config->at(0).size = { 640, 480 };
-    config->validate();
+    // ストリームの設定
+    StreamConfiguration &streamConfig = config->at(0);
+    streamConfig.size.width = 640;
+    streamConfig.size.height = 480;
+    streamConfig.pixelFormat = formats::BGR888;
+
+    if (config->validate() == CameraConfiguration::Invalid) {
+        cerr << "カメラの設定が無効です" << endl;
+        return -1;
+    }
+
     camera->configure(config.get());
 
-    // バッファアロケータを作成
+    // フレームバッファのアロケータ
     FrameBufferAllocator allocator(camera);
-    for (auto &stream : config->streams()) {
-        int ret = allocator.allocate(stream);
-        if (ret < 0) {
-            cerr << "バッファの割り当てに失敗しました" << endl;
-            camera->release();
-            return -1;
-        }
+    for (StreamConfiguration &cfg : *config) {
+        allocator.allocate(cfg.stream());
     }
 
-    // キャプチャリクエストの作成
-    vector<Request *> requests;
-    for (const unique_ptr<FrameBuffer> &buffer : allocator.buffers(config->at(0).stream())) {
-        Request *request = camera->createRequest();
-        if (!request) {
-            cerr << "リクエストの作成に失敗しました" << endl;
-            camera->release();
-            return -1;
-        }
-        request->addBuffer(config->at(0).stream(), buffer.get());
-        requests.push_back(request);
+    // フレームバッファの取得
+    Stream *stream = streamConfig.stream();
+    vector<unique_ptr<Request>> requests;
+    for (const unique_ptr<FrameBuffer> &buffer : allocator.buffers(stream)) {
+        unique_ptr<Request> request = camera->createRequest();
+        request->addBuffer(stream, buffer.get());
+        requests.push_back(move(request));
     }
 
-    vector<Mat> frames;
-
-    // リクエスト完了シグナルにコネクト
-    camera->requestCompleted.connect([&](Request *request) {
-        const Request::BufferMap &buffers = request->buffers();
-        auto it = buffers.begin();
-        const FrameBuffer &buffer = *it->second;
-
-        for (const auto &plane : buffer.planes()) {
-            void *data = plane.fd->map();
-            if (!data) {
-                cerr << "プレーンのメモリマッピングに失敗しました" << endl;
-                return;
-            }
-
-            Mat img(cv::Size(640, 480), CV_8UC3, data, Mat::AUTO_STEP);
-            frames.push_back(img.clone());
-        }
-    });
-
-    // ストリーム開始
+    // カメラの開始
     camera->start();
 
-    // キャプチャリクエストのキューイング
-    for (Request *request : requests) {
-        camera->queueRequest(request);
+    // 画像のキャプチャ
+    for (unique_ptr<Request> &request : requests) {
+        camera->queueRequest(request.get());
+        request->wait();
+
+        const Request::BufferMap &buffers = request->buffers();
+        auto it = buffers.begin();
+        const FrameBuffer *buffer = it->second;
+
+        // 画像の取得
+        const FrameBuffer::Plane &plane = buffer->planes()[0];
+        void *data = plane.mem;
+        cv::Mat img(cv::Size(640, 480), CV_8UC3, data, cv::Mat::AUTO_STEP);
+        
+        // 画像の保存
+        cv::imwrite("captured_image.jpg", img);
+        cout << "画像を保存しました: captured_image.jpg" << endl;
     }
 
-    // 適当な待機時間
-    this_thread::sleep_for(chrono::seconds(2));
-
-    // ストリーム停止
+    // カメラの停止
     camera->stop();
-
-    // カメラのリリース
     camera->release();
     manager.stop();
-
-    // 取得したフレームの表示
-    for (const Mat &frame : frames) {
-        imshow("Frame", frame);
-        waitKey(0);
-    }
 
     return 0;
 }
