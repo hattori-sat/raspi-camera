@@ -51,7 +51,7 @@ int main() {
     camera->acquire();
 
     // StreamRoleが正しく定義されているかを確認
-    const StreamRoles roles = { StreamRole::StillCapture };
+    const std::vector<StreamRole> roles = { StreamRole::StillCapture };
     unique_ptr<CameraConfiguration> config = camera->generateConfiguration(roles);
     if (!config) {
         cerr << "Error: Camera configuration failed" << endl;
@@ -108,12 +108,14 @@ int main() {
         }
 
         camera->requestCompleted.connect([&](Request *request) {
-            Request::BufferMap &buffers = request->buffers();
+            const Request::BufferMap &buffers = request->buffers();
             auto it = buffers.begin();
             const FrameBuffer &buffer = *it->second;
 
-            const unsigned char *data = buffer.planes()[0].data();
-            Mat img(Size(WIDTH, HEIGHT), CV_8UC3, (void*)data, Mat::AUTO_STEP);
+            const FrameBuffer::Plane &plane = buffer.planes().front();
+            const unsigned char *data = static_cast<const unsigned char *>(plane.memmap());
+
+            Mat img(cv::Size(WIDTH, HEIGHT), CV_8UC3, (void*)data, Mat::AUTO_STEP);
             frames.push_back(img.clone());
         });
 
