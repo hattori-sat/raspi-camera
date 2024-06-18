@@ -1,16 +1,20 @@
 #include <iostream>
-#include <thread>
 #include <vector>
 #include <opencv2/opencv.hpp>
-#include "picamera2.hpp"
+#include <libcamera/libcamera.h>
+#include <libcamera/framebuffer_allocator.h>
+#include <libcamera/camera_manager.h>
+#include <libcamera/camera.h>
+#include <libcamera/control_ids.h>
+#include <libcamera/formats.h>
 
 using namespace std;
 using namespace cv;
-using namespace picamera2;
+using namespace libcamera;
 
 constexpr int WIDTH = 640; // 解像度（幅）
 constexpr int HEIGHT = 480; // 解像度（高さ）
-constexpr int FPS = 60; // フレームレート
+constexpr int FPS = 30; // フレームレート
 constexpr int DURATION = 1; // 撮影する秒数
 
 // 画像を保存する関数
@@ -34,12 +38,57 @@ void processImages(const vector<Mat>& frames) {
 }
 
 int main() {
-    Picamera2 picam;
-    auto config = picam.createStillConfiguration({WIDTH, HEIGHT});
-    config->setFrameRate(FPS);
-    picam.configure(config);
+    CameraManager cm;
+    cm.start();
 
-    picam.start();
+    shared_ptr<Camera> camera = cm.get("libcamera");
+    if (!camera) {
+        cerr << "Error: Camera not found" << endl;
+        return -1;
+    }
+
+    camera->acquire();
+
+    StreamRoles roles = { StreamRole::StillCapture };
+    unique_ptr<CameraConfiguration> config = camera->generateConfiguration(roles);
+    config->at(0).pixelFormat = formats::RGB888;
+    config->at(0).size = { WIDTH, HEIGHT };
+    config->at(0).bufferCount = 4;
+    
+    if (camera->configure(config.get()) != 0) {
+        cerr << "Error: Camera configuration failed" << endl;
+        return -1;
+    }
+
+    FrameBufferAllocator allocator(camera);
+    for (StreamConfiguration &cfg : *config) {
+        Stream *stream = cfg.stream();
+        if (allocator.allocate(stream) < 0) {
+            cerr << "Error: Buffer allocation failed" << endl;
+            return -1;
+        }
+    }
+
+    vector<shared_ptr<Request>> requests;
+    for (unsigned int i = 0; i < allocator.buffers(config->at(0).stream()).size(); ++i) {
+        shared_ptr<Request> request = camera->createRequest();
+        if (!request) {
+            cerr << "Error: Request creation failed" << endl;
+            return -1;
+        }
+
+        const unique_ptr<FrameBuffer> &buffer = allocator.buffers(config->at(0).stream())[i];
+        if (request->addBuffer(config->at(0).stream(), buffer.get()) != 0) {
+            cerr << "Error: Adding buffer to request failed" << endl;
+            return -1;
+        }
+        requests.push_back(move(request));
+    }
+
+    if (camera->start() != 0) {
+        cerr << "Error: Camera start failed" << endl;
+        return -1;
+    }
 
     vector<Mat> frames;
     frames.reserve(FPS * DURATION);
@@ -47,8 +96,18 @@ int main() {
     auto start = chrono::high_resolution_clock::now();
 
     for (int i = 0; i < FPS * DURATION; ++i) {
-        auto frame = picam.captureFrame();
-        Mat img(Size(WIDTH, HEIGHT), CV_8UC3, frame.data(), Mat::AUTO_STEP);
+        if (camera->queueRequest(requests[i % requests.size()]) != 0) {
+            cerr << "Error: Queueing request failed" << endl;
+            return -1;
+        }
+
+        camera->waitForIdle();
+        Request::BufferMap &buffers = requests[i % requests.size()]->buffers();
+        auto it = buffers.begin();
+        const FrameBuffer &buffer = *it->second;
+
+        const unsigned char *data = buffer.planes()[0].data();
+        Mat img(Size(WIDTH, HEIGHT), CV_8UC3, (void*)data, Mat::AUTO_STEP);
         frames.push_back(img.clone());
         this_thread::sleep_for(chrono::milliseconds(1000 / FPS));
     }
@@ -57,7 +116,8 @@ int main() {
     chrono::duration<double> elapsed = end - start;
     cout << "Captured " << frames.size() << " frames in " << elapsed.count() << " seconds." << endl;
 
-    picam.stop();
+    camera->stop();
+    camera->release();
 
     // 並列処理で画像を保存および処理する
     thread saveThread(saveImages, ref(frames));
@@ -65,6 +125,8 @@ int main() {
 
     saveThread.join();
     processThread.join();
+
+    cm.stop();
 
     return 0;
 }
