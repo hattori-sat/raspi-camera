@@ -1,8 +1,9 @@
 #include <iostream>
 #include <libcamera/libcamera.h>
-#include <libcamera/base/log.h>
-#include <libcamera/controls.h>
+#include <libcamera/camera_manager.h>
+#include <libcamera/camera.h>
 #include <libcamera/framebuffer_allocator.h>
+#include <libcamera/request.h>
 #include <opencv2/opencv.hpp>
 
 using namespace libcamera;
