@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <thread>
 #include <opencv2/opencv.hpp>
 #include <libcamera/libcamera.h>
 #include <libcamera/framebuffer_allocator.h>
@@ -49,12 +50,17 @@ int main() {
 
     camera->acquire();
 
-    StreamRoles roles = { StreamRole::StillCapture };
+    // StreamRoleが正しく定義されているかを確認
+    const StreamRoles roles = { StreamRole::StillCapture };
     unique_ptr<CameraConfiguration> config = camera->generateConfiguration(roles);
+    if (!config) {
+        cerr << "Error: Camera configuration failed" << endl;
+        return -1;
+    }
     config->at(0).pixelFormat = formats::RGB888;
     config->at(0).size = { WIDTH, HEIGHT };
     config->at(0).bufferCount = 4;
-    
+
     if (camera->configure(config.get()) != 0) {
         cerr << "Error: Camera configuration failed" << endl;
         return -1;
@@ -96,19 +102,21 @@ int main() {
     auto start = chrono::high_resolution_clock::now();
 
     for (int i = 0; i < FPS * DURATION; ++i) {
-        if (camera->queueRequest(requests[i % requests.size()]) != 0) {
+        if (camera->queueRequest(requests[i % requests.size()].get()) != 0) {
             cerr << "Error: Queueing request failed" << endl;
             return -1;
         }
 
-        camera->waitForIdle();
-        Request::BufferMap &buffers = requests[i % requests.size()]->buffers();
-        auto it = buffers.begin();
-        const FrameBuffer &buffer = *it->second;
+        camera->requestCompleted.connect([&](Request *request) {
+            Request::BufferMap &buffers = request->buffers();
+            auto it = buffers.begin();
+            const FrameBuffer &buffer = *it->second;
 
-        const unsigned char *data = buffer.planes()[0].data();
-        Mat img(Size(WIDTH, HEIGHT), CV_8UC3, (void*)data, Mat::AUTO_STEP);
-        frames.push_back(img.clone());
+            const unsigned char *data = buffer.planes()[0].data();
+            Mat img(Size(WIDTH, HEIGHT), CV_8UC3, (void*)data, Mat::AUTO_STEP);
+            frames.push_back(img.clone());
+        });
+
         this_thread::sleep_for(chrono::milliseconds(1000 / FPS));
     }
 
