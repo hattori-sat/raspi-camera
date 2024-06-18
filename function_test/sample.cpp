@@ -82,10 +82,9 @@ public:
         const FrameBuffer *buffer = it->second;
         const FrameBuffer::Plane &plane = buffer->planes()[0];
 
-        void *data = plane.mmap();
-
-        if (data == nullptr) {
-            cerr << "バッファのメモリマップに失敗しました" << endl;
+        void *data = plane.fd->map();
+        if (!data) {
+            cerr << "バッファのメモリマッピングに失敗しました" << endl;
             return false;
         }
 
@@ -93,7 +92,7 @@ public:
         cv::imwrite("captured_image.jpg", img);
         cout << "画像を保存しました: captured_image.jpg" << endl;
 
-        munmap(data, plane.length());
+        plane.fd->unmap(data);
         camera_->stop();
         camera_->release();
 
