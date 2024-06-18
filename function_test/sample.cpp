@@ -4,87 +4,130 @@
 #include <libcamera/camera.h>
 #include <libcamera/framebuffer_allocator.h>
 #include <libcamera/request.h>
+#include <libcamera/signal.h>
 #include <opencv2/opencv.hpp>
 
 using namespace libcamera;
 using namespace std;
 
-int main()
-{
-    // カメラマネージャーの作成
-    CameraManager manager;
-    manager.start();
+class CameraCapture {
+public:
+    CameraCapture() : cm_(new CameraManager()) {}
 
-    if (manager.cameras().empty()) {
-        cerr << "カメラが見つかりません" << endl;
-        return -1;
+    bool initialize() {
+        cm_->start();
+
+        if (cm_->cameras().empty()) {
+            cerr << "カメラが見つかりません" << endl;
+            return false;
+        }
+
+        camera_ = cm_->cameras()[0];
+        camera_->acquire();
+
+        config_ = camera_->generateConfiguration({ StreamRole::StillCapture });
+        if (config_->validate() == CameraConfiguration::Invalid) {
+            cerr << "カメラの設定が無効です" << endl;
+            return false;
+        }
+
+        StreamConfiguration &streamConfig = config_->at(0);
+        streamConfig.size.width = 640;
+        streamConfig.size.height = 480;
+        streamConfig.pixelFormat = formats::BGR888;
+
+        if (config_->validate() == CameraConfiguration::Invalid) {
+            cerr << "カメラの設定が無効です" << endl;
+            return false;
+        }
+
+        camera_->configure(config_.get());
+
+        allocator_ = make_unique<FrameBufferAllocator>(camera_);
+        for (StreamConfiguration &cfg : *config_) {
+            allocator_->allocate(cfg.stream());
+        }
+
+        stream_ = streamConfig.stream();
+
+        for (const unique_ptr<FrameBuffer> &buffer : allocator_->buffers(stream_)) {
+            unique_ptr<Request> request = camera_->createRequest();
+            request->addBuffer(stream_, buffer.get());
+            requests_.push_back(move(request));
+        }
+
+        return true;
     }
 
-    shared_ptr<Camera> camera = manager.cameras()[0];
-    camera->acquire();
+    bool capture() {
+        camera_->start();
 
-    // カメラの設定
-    unique_ptr<CameraConfiguration> config = camera->generateConfiguration({ StreamRole::StillCapture });
+        Request *request = requests_.front().get();
+        camera_->queueRequest(request);
 
-    if (config->validate() == CameraConfiguration::Invalid) {
-        cerr << "カメラの設定が無効です" << endl;
-        return -1;
-    }
-
-    // ストリームの設定
-    StreamConfiguration &streamConfig = config->at(0);
-    streamConfig.size.width = 640;
-    streamConfig.size.height = 480;
-    streamConfig.pixelFormat = formats::BGR888;
-
-    if (config->validate() == CameraConfiguration::Invalid) {
-        cerr << "カメラの設定が無効です" << endl;
-        return -1;
-    }
-
-    camera->configure(config.get());
-
-    // フレームバッファのアロケータ
-    FrameBufferAllocator allocator(camera);
-    for (StreamConfiguration &cfg : *config) {
-        allocator.allocate(cfg.stream());
-    }
-
-    // フレームバッファの取得
-    Stream *stream = streamConfig.stream();
-    vector<unique_ptr<Request>> requests;
-    for (const unique_ptr<FrameBuffer> &buffer : allocator.buffers(stream)) {
-        unique_ptr<Request> request = camera->createRequest();
-        request->addBuffer(stream, buffer.get());
-        requests.push_back(move(request));
-    }
-
-    // カメラの開始
-    camera->start();
-
-    // 画像のキャプチャ
-    for (unique_ptr<Request> &request : requests) {
-        camera->queueRequest(request.get());
-        request->wait();
+        unique_lock<mutex> lock(mutex_);
+        condition_variable_.wait(lock, [&] { return request_done_; });
 
         const Request::BufferMap &buffers = request->buffers();
-        auto it = buffers.begin();
-        const FrameBuffer *buffer = it->second;
+        auto it = buffers.find(stream_);
+        if (it == buffers.end()) {
+            cerr << "ストリームのバッファが見つかりません" << endl;
+            return false;
+        }
 
-        // 画像の取得
+        const FrameBuffer *buffer = it->second;
         const FrameBuffer::Plane &plane = buffer->planes()[0];
-        void *data = plane.mem;
+        void *data = mmap(nullptr, plane.length, PROT_READ, MAP_SHARED, plane.fd.get(), 0);
+
+        if (data == MAP_FAILED) {
+            cerr << "バッファのメモリマップに失敗しました" << endl;
+            return false;
+        }
+
         cv::Mat img(cv::Size(640, 480), CV_8UC3, data, cv::Mat::AUTO_STEP);
-        
-        // 画像の保存
         cv::imwrite("captured_image.jpg", img);
         cout << "画像を保存しました: captured_image.jpg" << endl;
+
+        munmap(data, plane.length);
+        camera_->stop();
+        camera_->release();
+
+        return true;
     }
 
-    // カメラの停止
-    camera->stop();
-    camera->release();
-    manager.stop();
+    void requestComplete(Request *request) {
+        {
+            lock_guard<mutex> lock(mutex_);
+            request_done_ = true;
+        }
+        condition_variable_.notify_one();
+    }
+
+private:
+    unique_ptr<CameraManager> cm_;
+    shared_ptr<Camera> camera_;
+    unique_ptr<CameraConfiguration> config_;
+    unique_ptr<FrameBufferAllocator> allocator_;
+    vector<unique_ptr<Request>> requests_;
+    Stream *stream_;
+
+    bool request_done_ = false;
+    mutex mutex_;
+    condition_variable condition_variable_;
+};
+
+int main() {
+    CameraCapture camera_capture;
+
+    if (!camera_capture.initialize()) {
+        cerr << "カメラの初期化に失敗しました" << endl;
+        return -1;
+    }
+
+    if (!camera_capture.capture()) {
+        cerr << "画像のキャプチャに失敗しました" << endl;
+        return -1;
+    }
 
     return 0;
 }
