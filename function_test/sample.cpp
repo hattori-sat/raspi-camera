@@ -1,137 +1,84 @@
+// Copyright 2023 Ar-Ray-code.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #include <iostream>
-#include <memory>
-#include <mutex>
-#include <condition_variable>
-#include <libcamera/libcamera.h>
-#include <libcamera/camera_manager.h>
+
 #include <libcamera/camera.h>
-#include <libcamera/framebuffer_allocator.h>
-#include <opencv2/opencv.hpp>
+#include <libcamera/camera_manager.h>
+#include <libcamera/control_ids.h>
+#include <libcamera/property_ids.h>
+#include <libcamera/transform.h>
 
-using namespace libcamera;
-using namespace std;
+using CameraManager = libcamera::CameraManager;
+using Camera = libcamera::Camera;
 
-class CameraCapture {
-public:
-    CameraCapture() : cm_(new CameraManager()) {}
+std::unique_ptr<CameraManager> camera_manager_;
 
-    bool initialize() {
-        cm_->start();
+bool camera_is_connected()
+{
+	using namespace libcamera;
 
-        if (cm_->cameras().empty()) {
-            cerr << "カメラが見つかりません" << endl;
-            return false;
-        }
-
-        camera_ = cm_->cameras()[0];
-        camera_->acquire();
-
-        config_ = camera_->generateConfiguration({ StreamRole::StillCapture });
-        if (config_->validate() == CameraConfiguration::Invalid) {
-            cerr << "カメラの設定が無効です" << endl;
-            return false;
-        }
-
-        StreamConfiguration &streamConfig = config_->at(0);
-        streamConfig.size.width = 640;
-        streamConfig.size.height = 480;
-        streamConfig.pixelFormat = formats::BGR888;
-
-        if (config_->validate() == CameraConfiguration::Invalid) {
-            cerr << "カメラの設定が無効です" << endl;
-            return false;
-        }
-
-        camera_->configure(config_.get());
-
-        allocator_ = make_unique<FrameBufferAllocator>(camera_);
-        for (StreamConfiguration &cfg : *config_) {
-            allocator_->allocate(cfg.stream());
-        }
-
-        stream_ = streamConfig.stream();
-
-        for (const unique_ptr<FrameBuffer> &buffer : allocator_->buffers(stream_)) {
-            unique_ptr<Request> request = camera_->createRequest();
-            request->addBuffer(stream_, buffer.get());
-            requests_.push_back(move(request));
-        }
-
-        camera_->requestCompleted.connect(this, &CameraCapture::requestComplete);
-
-        return true;
+    std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
+    int ret = cm->start();
+    if (ret)
+    {
+        std::cout << "camera manager failed to start, code " << ret << std::endl;
+        return 1;
     }
 
-    bool capture() {
-        camera_->start();
+    std::vector<std::shared_ptr<Camera>> cameras = cm->cameras();
+    // Do not show USB webcams as these are not supported in libcamera-apps!
+    auto rem = std::remove_if(cameras.begin(), cameras.end(),
+                                [](auto &cam) { return cam->id().find("/usb") != std::string::npos; });
+    cameras.erase(rem, cameras.end());
 
-        Request *request = requests_.front().get();
-        request_done_ = false;
-        camera_->queueRequest(request);
-
-        unique_lock<mutex> lock(mutex_);
-        condition_variable_.wait(lock, [&] { return request_done_; });
-
-        const Request::BufferMap &buffers = request->buffers();
-        auto it = buffers.find(stream_);
-        if (it == buffers.end()) {
-            cerr << "ストリームのバッファが見つかりません" << endl;
-            return false;
-        }
-
-        const FrameBuffer *buffer = it->second;
-        const FrameBuffer::Plane &plane = buffer->planes()[0];
-
-        void *data = plane.fd->map();
-        if (!data) {
-            cerr << "バッファのメモリマッピングに失敗しました" << endl;
-            return false;
-        }
-
-        cv::Mat img(cv::Size(640, 480), CV_8UC3, data, cv::Mat::AUTO_STEP);
-        cv::imwrite("captured_image.jpg", img);
-        cout << "画像を保存しました: captured_image.jpg" << endl;
-
-        plane.fd->unmap(data);
-        camera_->stop();
-        camera_->release();
-
-        return true;
-    }
-
-    void requestComplete(Request *request) {
+    if (cameras.size() != 0)
+    {
+        unsigned int idx = 0;
+        // print number of cameras
+        std::cout << "Number of cameras: " << cameras.size() << std::endl;
+        for (auto const &cam : cameras)
         {
-            lock_guard<mutex> lock(mutex_);
-            request_done_ = true;
+            cam->acquire();
+            std::cout << idx++ << " : " << *cam->properties().get(libcamera::properties::Model);
+            auto area = cam->properties().get(properties::PixelArrayActiveAreas);
+            if (area)
+                std::cout << " [" << (*area)[0].size().toString() << "]";
+            std::cout << " (" << cam->id() << ")" << std::endl;
+
+            std::unique_ptr<CameraConfiguration> config = cam->generateConfiguration({libcamera::StreamRole::Raw});
+            if (!config)
+            {
+                std::cout << "failed to generate capture configuration" << std::endl;
+                return 1;
+            }
+
+            cam->release();
         }
-        condition_variable_.notify_one();
     }
-
-private:
-    unique_ptr<CameraManager> cm_;
-    shared_ptr<Camera> camera_;
-    unique_ptr<CameraConfiguration> config_;
-    unique_ptr<FrameBufferAllocator> allocator_;
-    vector<unique_ptr<Request>> requests_;
-    Stream *stream_;
-
-    bool request_done_ = false;
-    mutex mutex_;
-    condition_variable condition_variable_;
-};
-
-int main() {
-    CameraCapture camera_capture;
-
-    if (!camera_capture.initialize()) {
-        cerr << "カメラの初期化に失敗しました" << endl;
+    else
+    {
+        std::cout << "No cameras available!" << std::endl;
         return 1;
     }
 
-    if (!camera_capture.capture()) {
-        cerr << "画像のキャプチャに失敗しました" << endl;
-        return 1;
-    }
-
+    cameras.clear();
+    cm->stop();
     return 0;
+}
+
+int main(void)
+{
+    return camera_is_connected();
 }
