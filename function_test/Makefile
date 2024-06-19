@@ -5,11 +5,10 @@ LDFLAGS = `pkg-config --libs libcamera`
 all: my_libcamera_app
 
 my_libcamera_app: main.o
-    $(CXX) -o $@ $^ $(LDFLAGS)
+	$(CXX) -o $@ $^ $(LDFLAGS)
 
 main.o: main.cpp
-    $(CXX) $(CXXFLAGS) -c $<
-
+	$(CXX) $(CXXFLAGS) -c $<
 
 clean:
-    rm -f my_libcamera_app main.o
+	rm -f my_libcamera_app main.o
