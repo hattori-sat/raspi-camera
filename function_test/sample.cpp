@@ -1,34 +1,23 @@
+#include <libcamera/libcamera.h>
 #include <iostream>
-#include <raspicam/raspicam.h>
+using namespace libcamera;
 
-int main(int argc, char **argv) {
-    raspicam::RaspiCam Camera;
-
-    // カメラを初期化する
-    if (!Camera.open()) {
-        std::cerr << "Error opening camera" << std::endl;
+int main(){
+    CameraManager cm;
+    cm.start();
+    if (cm.cameras().empty()){
+        std::cerr << "No cameras available" << std::endl;
         return -1;
     }
+    std::shared_ptr<Camera> camera = cm.cameras()[0];
+    if (camera->acquire()){
+        std::cerr << "Failed to acquire camera" << std::endl;
+        return -1;
+    }
+    std::cout << "Camera acquired: " << camera->id() << std::endl;
 
-    // カメラを起動する
-    Camera.grab();
-
-    // 画像データを保存するためのバッファ
-    unsigned char *data = new unsigned char[Camera.getImageTypeSize(raspicam::RASPICAM_FORMAT_RGB)];
-
-    // 画像を取得する
-    Camera.retrieve(data, raspicam::RASPICAM_FORMAT_RGB);
-
-    // 画像をファイルに保存する (例: image.jpg)
-    std::ofstream outFile("image.jpg", std::ios::binary);
-    outFile.write(reinterpret_cast<char*>(data), Camera.getImageTypeSize(raspicam::RASPICAM_FORMAT_RGB));
-    outFile.close();
-
-    // メモリを解放する
-    delete[] data;
-
-    // カメラを閉じる
-    Camera.release();
-
+    // ここでカメラの設定やキャプチャ処理を追加します
+    camera->release();
+    cm.stop();
     return 0;
 }
