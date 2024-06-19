@@ -9,5 +9,5 @@ pkg_check_modules(LIBCAMERA REQUIRED libcamera)
 include_directories(${LIBCAMERA_INCLUDE_DIRS})
 link_directories(${LIBCAMERA_LIBRARY_DIRS})
 
-add_executable(MyLibcameraProject sample.cpp)
+add_executable(MyLibcameraProject main.cpp)
 target_link_libraries(MyLibcameraProject ${LIBCAMERA_LIBRARIES})
